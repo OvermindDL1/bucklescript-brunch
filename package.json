@@ -1,0 +1,29 @@
+{
+  "name": "bucklescript-brunch",
+  "version": "0.1.0",
+  "description": "Brunch plugin to compile bucklescript code (https://bloomberg.github.io/bucklescript/)",
+  "main": "index.js",
+  "scripts": {
+    "test": "mocha"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OvermindDL1/bucklescript-brunch.git"
+  },
+  "keywords": [
+    "bucklescript",
+    "brunch.io"
+  ],
+  "author": "OvermindDL1",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/OvermindDL1/bucklescript-brunch/issues"
+  },
+  "homepage": "https://github.com/OvermindDL1/bucklescript-brunch#readme",
+  "devDependencies": {
+    "chai": "^3.5.0",
+    "mocha": "^3.0.2",
+    "sinon": "^1.17.6",
+    "sinon-chai": "^2.8.0"
+  }
+}

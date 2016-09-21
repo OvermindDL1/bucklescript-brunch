@@ -1,0 +1,5 @@
+# Node stuff first
+/node_modules
+
+# Test sections
+/temp
