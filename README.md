@@ -26,7 +26,7 @@ npm install --save bucklescript-brunch
 
 # Configuration
 
-Inside your brunch-config.js (or equivalant) file:
+Inside your brunch-config.js (or equivalent) file:
 
 ```javascript
   plugins: {
