@@ -36,18 +36,31 @@ Inside your brunch-config.js (or equivalant) file:
       // If installed globally than "" is fine, else if
       // installed inside project then something like
       // "./node_modules/bs-platform/bin" or so.
+      // (optional)
       binPath: "",
 
       // The base working directory for the bsc source
-      // files, defaults to the base directory (required)
+      // files, defaults to the base directory
+      // (optional)
       bscCwd: null, // Example:  "src"
+
+      // A directory that should not be watched by Brunch.
+      // Optional if you want to commit or not as it will
+      // contain the generated javascript from bucklescript
+      // if you wish to look over it, but it should not be
+      // included in the compiled javascript list.
+      // Defaults to "tmp", so just add a /tmp to your
+      // .gitignore file or so to ignore it if it should
+      // not be committed.
+      // (optional)
+      tempOutputFolder: "tmp",
 
       // Parameters to the bsc application (required)
       // A list of string arguments, you will need to
-      // escape the parameters as usual for a shell
+      // escape the parameters as usual for a shell.
+      // (optional)
       bscParameters: [
-        ...
-      ],
+      ], // example:  [ "-bs-cross-module-opt" ]
     }
   }
 ```
