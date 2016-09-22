@@ -33,13 +33,14 @@ class BucklescriptBrunchPlugin {
     this.bscCwd = this.config.bscCwd || null; // null is the project root directory
     this.tempOutputFolder = this.config.tempOutputFolder || "tmp"
     this.compileAllAtOnce = this.config.compileAllAtOnce || false;
+    this.disableDepCheck = this.config.compileAllAtOnce || false;
     this.bscParameters = this.config.bscParameters || [];
     this.globIgnore = this.config.globIgnore || "node_modules/**/*";
 
     // Resolve paths:
-    this.binPaths.bsc = path.resolve(this.binPaths.bsc);
-    this.binPaths.bsppx = path.resolve(this.binPaths.bsppx);
-    this.binPaths.ocamldep = path.resolve(this.binPaths.ocamldep);
+    this.binPaths.bsc = (this.binPaths.bsc=="bsc.exe") ? this.binPaths.bsc : path.resolve(this.binPaths.bsc);
+    this.binPaths.bsppx = (this.binPaths.bsppx=="bsppx.exe") ? this.binPaths.bsppx : path.resolve(this.binPaths.bsppx);
+    this.binPaths.ocamldep = (this.binPaths.ocamldep=="ocamldep") ? this.binPaths.ocamldep : path.resolve(this.binPaths.ocamldep);
   }
 
   retIfFileIsExecutable(path, ret) {
@@ -55,43 +56,156 @@ class BucklescriptBrunchPlugin {
   // Called before every compilation. Stops it when the error is returned.  TODO:  Maybe use an ocaml linter here?
   // lint(data, path, callback) {console.log("lint", data, path, callback); callback(null, true); }
 
-  // // Allows Brunch to calculate dependants of the file and re-compile them too.
-  // // Examples: SASS '@import's, Jade 'include'-s.
-  getDependencies(data, path, callback) {
-    // console.log("getDependencies", /*data,*/ path, callback);
-    var inFile = path;
-
+  getFilepathWithoutBscCwd(filepath) {
+    // filepath = path.posix.join(filepath);
     if(this.bscCwd !== null) {
       var cwdTerm = path.posix.join(this.bscCwd, "i").slice(0, -1);
-      if(!inFile.startsWith(cwdTerm)) {
-        // console.log("External ml file ignored due to not being on the working path", inFile);
-        // return callback(null, "");
-        return callback(filedata.path + " is not in the supported cwd path", "");
+      if(!filepath.startsWith(cwdTerm)) {
+        return undefined;
       }
-      inFile = inFile.substring(cwdTerm.length);
+      return filepath.substring(cwdTerm.length);
     }
+    else return filepath;
+  }
 
-    const ocamldep = this.binPaths.ocamldep;
-    const bsppx = this.binPaths.bsppx;
-    var command = ocamldep + ' -ppx "' + bsppx + '" "' + inFile + '"';
+  getFilenameWithNewExt(filename, newExt) {
+    const ext = path.extname(filename);
+    return filename.slice(0,-ext.length) + newExt;
+  }
 
-    var info = 'Bucklescript dependencies check: ' + command;
+  parseOcamlDepOutput(output) {
+    const deps = {
+      dependentsOf: {},
+      dependsOf: {}
+    };
+    const lines = output.split(/\r?\n/);
+    for (const line of lines) {
+      // console.log("Output:", line);
+      const [key, value] = line.split(/:/, 2);
+      if(key.length>0 && value !== undefined && value.length>0) {
+        const file = this.getFilenameWithNewExt(key, '.ml');
+        deps.dependsOf[file] = deps.dependsOf[file] || {};
+        deps.dependentsOf[file] = deps.dependentsOf[file] || {};
+        const dependsOn = value.trim().split(/ /);
+        // console.log("K", key);
+        // console.log("V", '"', value, '"', value.length);
+        // console.log("D", dependsOn);
+        for (const dep of dependsOn) {
+          const depFile = this.getFilenameWithNewExt(dep, '.ml');
+          deps.dependentsOf[depFile] = deps.dependentsOf[depFile] || {};
+          deps.dependsOf[file][depFile] = true;
+          deps.dependentsOf[depFile][file] = true;
+        }
+      }
+    }
+    return deps;
+  }
+
+  getDependsOf(fullInFile, callback) {
+    const inFile = this.getFilepathWithoutBscCwd(fullInFile);
+    if(!inFile) {
+      callback("Invalid file given to depends of: "+fullInFile, "");
+      return;
+    }
+    // callback("'getDependsOf' is not implemented!", []);
+    const self = this;
+    const bscCwd = this.bscCwd;
+    const binPaths = this.binPaths;
+    const ocamldep = binPaths.ocamldep;
+    const bsppx = binPaths.bsppx;
+    const command = '"' + ocamldep + '" "-ppx" "' + bsppx + '" "' + inFile + '"';
+
+    const info = 'Bucklescript depends check: ' + command;
     console.log(info);
 
     try {
-      childProcess.exec(command, {cwd: this.bscCwd}, (error, stdout, stderr) => {
+      childProcess.exec(command, {cwd: bscCwd}, (error, stdout, stderr) => {
         if(stderr) console.log(stderr);
         if(error) callback(error, "");
         else {
           if(stderr != "") callback(stderr, "");
           else {
-            console.log("TODO:  deps", stdout);
-            callback(null, []);
+            const deps = self.parseOcamlDepOutput(stdout);
+            // console.log("Possible deps of:", inFile, deps);
+            if(deps.dependsOf[inFile]) callback(null, Object.keys(deps.dependsOf[inFile]));
+            else callback(null, []);
           }
         }
       })
     } catch (error) {
+      // console.log("DEPS ERRORS", error);
       callback(error, "");
+    }
+  }
+
+  getDependentsOf(fullInFile, callback) {
+    const inFile = this.getFilepathWithoutBscCwd(fullInFile);
+    if(!inFile) {
+      callback("Invalid file given to dependents of: "+fullInFile, "");
+      return;
+    }
+    const self = this;
+    const binPaths = this.binPaths;
+    const bscCwd = this.bscCwd;
+    const tempOutputFolder = this.tempOutputFolder;
+    const doCompile = this.doCompile;
+    const globIgnore = this.globIgnore;
+    var glob_opts = {};
+
+    glob_opts.nosort = true;
+    glob_opts.ignore = globIgnore;
+    if(bscCwd) glob_opts.cwd = bscCwd;
+    glob("**/*.{ml,mli}", glob_opts, function (err, files) {
+      if(err) callback(err, []);
+      else if (files.length == 0) callback("No Source Files found during dependency check", [])
+      else {
+        // ocamldep does the inverse of the dependency check that we want here, rather we want to see what other files
+        // need to be compiled once this one is compiled...  So we grab all files then see what depends on 'this'
+        // console.log("Deps files to check:", files);
+
+        const ocamldep = binPaths.ocamldep;
+        const bsppx = binPaths.bsppx;
+        const command = '"' + ocamldep + '" "-ppx" "' + bsppx + '" "' + files.join('" "') + '"';
+
+        const info = 'Bucklescript dependents check: ' + command;
+        console.log(info);
+
+        try {
+          childProcess.exec(command, {cwd: bscCwd}, (error, stdout, stderr) => {
+            // console.log("DEPS CHECK:", error, stdout, stderr);
+            if(stderr) console.log(stderr);
+            if(error) callback(error, "");
+            else {
+              if(stderr) callback(stderr, "");
+              else {
+                // console.log("TODO:  deps", stdout);
+                const deps = self.parseOcamlDepOutput(stdout);
+                // console.log("Deps of:", inFile, deps);
+                if(deps.dependentsOf[inFile]) callback(null, Object.keys(deps.dependentsOf[inFile]));
+                else callback(null, []);
+              }
+            }
+          })
+        } catch (error) {
+          // console.log("DEPS ERRORS", error);
+          callback(error, "");
+        }
+      }
+    });
+  }
+
+  // // Allows Brunch to calculate dependants of the file and re-compile them too.
+  // // Examples: SASS '@import's, Jade 'include'-s.
+  getDependencies(data, filepath, callback) {
+    if(this.disableDepCheck || this.compileAllAtOnce) {
+      callback(null, []);
+    }
+    else {
+      const bscCwd = this.bscCwd;
+      this.getDependentsOf(filepath, function (err, files) {
+        if(err) callback(err, []);
+        else callback(null, files.map(p => path.posix.join(bscCwd, p)));
+      });
     }
   }
 
@@ -127,7 +241,7 @@ class BucklescriptBrunchPlugin {
       if(!inFile.startsWith(cwdTerm)) {
         // console.log("External ml file ignored due to not being on the working path", inFile);
         // return callback(null, "");
-        console.log("Blah", filedata.path, inFile, cwdTerm, this.bscCwd);
+        // console.log("Blah", filedata.path, inFile, cwdTerm, this.bscCwd);
         return callback(filedata.path + " is not in the supported cwd path", "");
       }
       inFile = inFile.substring(cwdTerm.length);
@@ -144,6 +258,7 @@ class BucklescriptBrunchPlugin {
       .concat(["-o", this.tempOutputFolder])
       .concat(["-bs-files"]); // -bs-files must remain last
 
+    const self = this;
     const binPaths = this.binPaths;
     const bscCwd = this.bscCwd;
     const tempOutputFolder = this.tempOutputFolder;
@@ -174,7 +289,18 @@ class BucklescriptBrunchPlugin {
           params = params.concat([inFileI]);
         }
       }
-      doCompile(inFile, binPaths, params, bscCwd, tempOutputFolder, callback);
+      doCompile(inFile, binPaths, params, bscCwd, tempOutputFolder, function(error, output) {
+        if(error) {
+          self.getDependsOf(filedata.path, function (err, files) {
+            if(err) callback(err, "");
+            else if(files == []) callback(error, "");
+            else {
+              doCompile(inFile, binPaths, params.concat(files), bscCwd, tempOutputFolder, callback);
+            }
+          });
+        }
+        else callback(null, output);
+      });
     }
   }
 }

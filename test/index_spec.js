@@ -20,7 +20,8 @@ describe('BucklescriptCompiler', function (){
           bucklescriptBrunch: {}
         }
       }
-    , bscPath = path.posix.join("node_modules", "bs-platform", "bin", "bsc.exe");
+    , bscFullPath = path.resolve(path.posix.join("node_modules", "bs-platform", "bin", "bsc.exe"))
+    , bscPosixPath = path.posix.join("node_modules", "bs-platform", "bin", "bsc.exe");
 
 
   describe('plugin', function () {
@@ -46,7 +47,7 @@ describe('BucklescriptCompiler', function (){
         });
 
         it('is in node_modules', function () {
-          expect(bucklescriptCompiler.binPaths.bsc).to.equal(bscPath);
+          expect(bucklescriptCompiler.binPaths.bsc).to.equal(bscFullPath);
         });
       });
     });
@@ -84,6 +85,7 @@ describe('BucklescriptCompiler', function (){
 
     beforeEach(function () {
       sampleConfig = JSON.parse(JSON.stringify(baseConfig));
+      sampleConfig.plugins.bucklescriptBrunch.bscCwd = "test";
     });
 
     describe('file with no dependencies', function () {
@@ -110,9 +112,10 @@ describe('BucklescriptCompiler', function (){
 
       it('should return a non-empty list', function (done) {
         var data = '';
-        bucklescriptCompiler.getDependencies(data, "test/test_dep.ml", function(error, result) {
+        // test_dep.ml depends on test.ml
+        bucklescriptCompiler.getDependencies(data, "test/test.ml", function(error, result) {
           expect(error).to.not.be.ok;
-          expect(result).to.deep.equal(["test/test.ml"]);
+          expect(result).to.deep.equal(["test/test_dep.ml"]);
           done();
         });
       });
@@ -155,10 +158,9 @@ describe('BucklescriptCompiler', function (){
 
         it('should call compile successfully', function (done) {
           var data = '';
-          expected = bscPath + ' "-c" "-bs-package-name" "bucklescript" "-bs-package-output" "tmp" "-o" "tmp" "-bs-files" "test/test.ml"';
+          expected = '"' + bscFullPath + '" "-c" "-bs-package-name" "bucklescript" "-bs-package-output" "tmp" "-o" "tmp" "-bs-files" "test/test.ml"';
           bucklescriptCompiler.compile({data, path: "test/test.ml"}, function(error) {
-            // expect(error).to.not.be.ok;
-            // this is never actually checked, TODO:  Figure out how to do async tests...
+            expect(error).to.not.be.ok;
             expect(childProcess.exec).to.have.been.calledWith(expected, {cwd: null});
             done();
           });
@@ -174,11 +176,11 @@ describe('BucklescriptCompiler', function (){
 
         it('should call compile successfully', function (done) {
           var data = '';
-          expected = bscPath + ' "-blah" "-c" "-bs-package-name" "bucklescript" "-bs-package-output" "tmp" "-o" "tmp" "-bs-files" "test/test.ml"';
+          expected = '"' + bscFullPath + '" "-blah" "-c" "-bs-package-name" "bucklescript" "-bs-package-output" "tmp" "-o" "tmp" "-bs-files" "test/test.ml"';
           bucklescriptCompiler.compile({data, path: "test/test.ml"}, function(error) {
-            // expect(error).to.not.be.ok;
-            // this is never actually checked, TODO:  Figure out how to do async tests...
+            expect(error).to.not.be.ok;
             expect(childProcess.exec).to.have.been.calledWith(expected, {cwd: null});
+
             done();
           });
         });
@@ -193,10 +195,9 @@ describe('BucklescriptCompiler', function (){
 
         it('should call compile successfully', function (done) {
           var data = '';
-          expected = bscPath + ' -c -bs-package-name bucklescript -bs-package-output tmp -o tmp -bs-files test.ml';
+          expected = bscFullPath + ' -c -bs-package-name bucklescript -bs-package-output tmp -o tmp -bs-files test.ml';
           bucklescriptCompiler.compile({data, path: path.posix.join("test", "test.ml")}, function(error) {
             expect(error).to.not.be.ok;
-            // this is never actually checked, TODO:  Figure out how to do async tests...
             expect(fs.readFile).to.have.been.calledWith(path.posix.join("tmp", "test.js"), "utf-8");
             done();
           });
