@@ -4,7 +4,15 @@
 
 # Install Bucklescript
 
-Official NPM installation:
+## Bucklescript prerequisites
+
+Bucklescript is a back-end for the OCaml compiler, thus OCaml needs to be properly installed and operational first.
+
+If on linux or mac then from the repositories is fine, at least version 4.02.3 is best. If on Windows then one of the most reliably working ones is the cygwin one (which installs into or includes a copy of cygwin based on how you install it), others may work but have been iffy, if anyone tests any that do work on Windows with bs-platform official install then please report back with those and their links.
+
+You can acquire the Windows cygwin variant at: <https://fdopen.github.io/opam-repository-mingw/>
+
+## Official NPM installation:
 
 Globally:
 
@@ -32,12 +40,21 @@ Inside your brunch-config.js (or equivalent) file:
   plugins: {
     ...
     bucklescriptBrunch: {
-      // The path to the Bucklescript binary directory.
-      // If installed globally than "" is fine, else if
-      // installed inside project then something like
-      // "./node_modules/bs-platform/bin" or so.
-      // (optional)
-      binPath: "",
+      binPaths: {
+        // This defaults to the bsc in bs-platform in the local node_modules directory if it exists, else falls
+        // back to a global bsc.
+        // (optional)
+        bsc: "<path-to-bsc>",
+
+        // This defaults to the bsppx in bs-platform in the local node_modules directory if it exists, else falls
+        // back to a global bsppx.
+        // (optional)
+        bsppx: "<path-to-bsppx>",
+
+        // This defaults to a global ocamldep on the $PATH, please make sure that OCaml is on the path
+        // (optional)
+        ocamldep: "<path-to-ocamldep>"
+      },
 
       // The base working directory for the bsc source
       // files, defaults to the base directory
@@ -55,9 +72,23 @@ Inside your brunch-config.js (or equivalent) file:
       // (optional)
       tempOutputFolder: "tmp",
 
+      // If true then anytime a file is changed then all
+      // are recompiled, however only the change one is
+      // output to javascript, so if a dependent is broken
+      // due to another then it will still need to be
+      // re-saved after as well in `watch` mode.  however,
+      // this is highly useful for on-demand building as
+      // there are no dependency issues then.
+      // (optional)
+      compileAllAtOnce: false,
+
+      // When compileAllAtOnce is true then this will ignore
+      // the defined glob:
+      // (optional)
+      globIgnore: "node_modules/**",
+
       // Parameters to the bsc application (required)
-      // A list of string arguments, you will need to
-      // escape the parameters as usual for a shell.
+      // A list of string arguments.
       // (optional)
       bscParameters: [
       ], // example:  [ "-bs-cross-module-opt" ]

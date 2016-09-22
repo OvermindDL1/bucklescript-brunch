@@ -1,22 +1,26 @@
 var chai = require('chai')
   , sinon = require('sinon')
   , sinonChai = require('sinon-chai')
-  , expect = chai.expect;
+  , expect = chai.expect
+  , path = require('path');
 
 chai.use(sinonChai);
 
 var BucklescriptCompiler = require('../index')
-  , execSync;
+  , exec
+  , readFile;
 
 describe('BucklescriptCompiler', function (){
-  var bucklescriptCompiler, baseConfig = {
+  var bucklescriptCompiler
+    , baseConfig = {
         paths: {
           public: 'test/public/folder'
         },
         plugins: {
           bucklescriptBrunch: {}
         }
-      };
+      }
+    , bscPath = path.posix.join("node_modules", "bs-platform", "bin", "bsc.exe");
 
 
   describe('plugin', function () {
@@ -35,6 +39,18 @@ describe('BucklescriptCompiler', function (){
 
 
   describe('bucklescript config', function () {
+    describe('binPaths', function () {
+      describe('bsc', function () {
+        beforeEach(function () {
+          bucklescriptCompiler = new BucklescriptCompiler(baseConfig);
+        });
+
+        it('is in node_modules', function () {
+          expect(bucklescriptCompiler.binPaths.bsc).to.equal(bscPath);
+        });
+      });
+    });
+
     describe('bscParameters', function () {
       describe('when no bscParameters are not specified', function () {
         beforeEach(function () {
@@ -63,53 +79,127 @@ describe('BucklescriptCompiler', function (){
   });
 
 
+  describe('dependency testing Bucklescript', function () {
+    var sampleConfig;
+
+    beforeEach(function () {
+      sampleConfig = JSON.parse(JSON.stringify(baseConfig));
+    });
+
+    describe('file with no dependencies', function () {
+      beforeEach(function () {
+        config = JSON.parse(JSON.stringify(sampleConfig));
+        bucklescriptCompiler = new BucklescriptCompiler(config);
+      });
+
+      it('should return an empty list', function (done) {
+        var data = '';
+        bucklescriptCompiler.getDependencies(data, "test/test_dep.ml", function(error, result) {
+          expect(error).to.not.be.ok;
+          expect(result).to.deep.equal([]);
+          done();
+        });
+      });
+    });
+
+    describe('file with dependencies', function () {
+      beforeEach(function () {
+        config = JSON.parse(JSON.stringify(sampleConfig));
+        bucklescriptCompiler = new BucklescriptCompiler(config);
+      });
+
+      it('should return a non-empty list', function (done) {
+        var data = '';
+        bucklescriptCompiler.getDependencies(data, "test/test_dep.ml", function(error, result) {
+          expect(error).to.not.be.ok;
+          expect(result).to.deep.equal(["test/test.ml"]);
+          done();
+        });
+      });
+    });
+  });
+
 
   describe('compiling Bucklescript', function () {
     var childProcess = require('child_process')
+      , fs = require('fs')
       , sampleConfig;
 
     beforeEach(function () {
       exec = sinon.stub(childProcess, 'exec');
+      exec.callsArgWith(2, null, "Success childProcess.exec", "");
+
+      readFile = sinon.stub(fs, 'readFile');
+      readFile.callsArgWith(2, null, "Success fs.readFile");
 
       sampleConfig = JSON.parse(JSON.stringify(baseConfig));
     });
 
     afterEach(function () {
+      readFile.restore();
       exec.restore();
     });
 
-    describe('the initial run', function () {
+    describe('file by file', function () {
+      var fileByFileConfig;
+
+      beforeEach(function () {
+        fileByFileConfig = JSON.parse(JSON.stringify(sampleConfig));
+        fileByFileConfig.plugins.bucklescriptBrunch.compileAllAtOnce = false;
+      });
+
+      describe('with default configs otherwise', function () {
+        beforeEach(function () {
+          bucklescriptCompiler = new BucklescriptCompiler(fileByFileConfig);
+        });
+
+        it('should call compile successfully', function (done) {
+          var data = '';
+          expected = bscPath + ' "-c" "-bs-package-name" "bucklescript" "-bs-package-output" "tmp" "-o" "tmp" "-bs-files" "test/test.ml"';
+          bucklescriptCompiler.compile({data, path: "test/test.ml"}, function(error) {
+            // expect(error).to.not.be.ok;
+            // this is never actually checked, TODO:  Figure out how to do async tests...
+            expect(childProcess.exec).to.have.been.calledWith(expected, {cwd: null});
+            done();
+          });
+        });
+      });
+
       describe('when bscParameters is specified', function () {
         beforeEach(function () {
-          config = JSON.parse(JSON.stringify(sampleConfig));
+          var config = JSON.parse(JSON.stringify(fileByFileConfig));
           config.plugins.bucklescriptBrunch.bscParameters = ["-blah"];
           bucklescriptCompiler = new BucklescriptCompiler(config);
         });
 
-        it('should compile successfully', function () {
+        it('should call compile successfully', function (done) {
           var data = '';
-          bucklescriptCompiler.compile({data, path: "test.ml"}, function(error) {
-            expect(error).to.not.be.ok;
+          expected = bscPath + ' "-blah" "-c" "-bs-package-name" "bucklescript" "-bs-package-output" "tmp" "-o" "tmp" "-bs-files" "test/test.ml"';
+          bucklescriptCompiler.compile({data, path: "test/test.ml"}, function(error) {
+            // expect(error).to.not.be.ok;
+            // this is never actually checked, TODO:  Figure out how to do async tests...
+            expect(childProcess.exec).to.have.been.calledWith(expected, {cwd: null});
+            done();
           });
-          expected = 'bsc -blah -c -bs-package-name bucklescript -bs-package-output tmp -o tmp -bs-files test.ml';
-          expect(childProcess.exec).to.have.been.calledWith(expected, {cwd: null});
         });
       });
 
       describe('when bscCwd is specified', function () {
         beforeEach(function () {
-          config = JSON.parse(JSON.stringify(sampleConfig));
-          config.plugins.bucklescriptBrunch.bscCwd = "src";
+          config = JSON.parse(JSON.stringify(fileByFileConfig));
+          config.plugins.bucklescriptBrunch.bscCwd = "test";
           bucklescriptCompiler = new BucklescriptCompiler(config);
         });
 
-        it('should compile successfully', function () {
+        it('should call compile successfully', function (done) {
           var data = '';
-          bucklescriptCompiler.compile({data, path: "src/test.ml"}, function(error) {
+          expected = bscPath + ' -c -bs-package-name bucklescript -bs-package-output tmp -o tmp -bs-files test.ml';
+          bucklescriptCompiler.compile({data, path: path.posix.join("test", "test.ml")}, function(error) {
             expect(error).to.not.be.ok;
+            // this is never actually checked, TODO:  Figure out how to do async tests...
+            expect(fs.readFile).to.have.been.calledWith(path.posix.join("tmp", "test.js"), "utf-8");
+            done();
           });
-          expected = 'bsc -c -bs-package-name bucklescript -bs-package-output tmp -o tmp -bs-files test.ml';
-          expect(childProcess.exec).to.have.been.calledWith(expected, {cwd: "src"});
         });
       });
     });
