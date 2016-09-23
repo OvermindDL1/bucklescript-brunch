@@ -116,7 +116,7 @@ class BucklescriptBrunchPlugin {
     const binPaths = this.binPaths;
     const ocamldep = binPaths.ocamldep;
     const bsppx = binPaths.bsppx;
-    const command = '"' + ocamldep + '" "-ppx" "' + bsppx + '" "' + inFile + '"';
+    const command = '"' + ocamldep + '" "-one-line" "-ppx" "' + bsppx + '" "' + inFile + '"';
 
     const info = 'Bucklescript depends check: ' + command;
     if(verbosity > 1) console.log(info);
@@ -169,7 +169,7 @@ class BucklescriptBrunchPlugin {
 
         const ocamldep = binPaths.ocamldep;
         const bsppx = binPaths.bsppx;
-        const command = '"' + ocamldep + '" "-ppx" "' + bsppx + '" "' + files.join('" "') + '"';
+        const command = '"' + ocamldep + '" "-one-line" "-ppx" "' + bsppx + '" "' + files.join('" "') + '"';
 
         const info = 'Bucklescript dependents check: ' + command;
         if(verbosity > 1) console.log(info);
