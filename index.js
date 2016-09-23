@@ -22,6 +22,7 @@ class BucklescriptBrunchPlugin {
   constructor(config) {
     // Replace 'plugin' with your plugin's name;
     this.config = config && config.plugins && config.plugins.bucklescriptBrunch;
+    this.verbosity = (this.config.verbosity === undefined) ? 1 : this.config.verbosity;
     this.binPaths = this.config.binPaths || {}; // "./node_modules/bs-platform/bin";
     this.binPaths.bsc = this.binPaths.bsc ||
       this.retIfFileIsExecutable(path.posix.join("node_modules", "bs-platform", "bin", "bsc.exe")) ||
@@ -74,22 +75,23 @@ class BucklescriptBrunchPlugin {
   }
 
   parseOcamlDepOutput(output) {
+    const verbosity = this.verbosity;
     const deps = {
       dependentsOf: {},
       dependsOf: {}
     };
     const lines = output.split(/\r?\n/);
     for (const line of lines) {
-      // console.log("Output:", line);
+      if(verbosity > 4) console.log("Output:", line);
       const [key, value] = line.split(/:/, 2);
       if(key.length>0 && value !== undefined && value.length>0) {
         const file = this.getFilenameWithNewExt(key, '.ml');
         deps.dependsOf[file] = deps.dependsOf[file] || {};
         deps.dependentsOf[file] = deps.dependentsOf[file] || {};
         const dependsOn = value.trim().split(/ /);
-        // console.log("K", key);
-        // console.log("V", '"', value, '"', value.length);
-        // console.log("D", dependsOn);
+        if(verbosity > 4) console.log("K", key);
+        if(verbosity > 4) console.log("V", '"', value, '"', value.length);
+        if(verbosity > 4) console.log("D", dependsOn);
         for (const dep of dependsOn) {
           const depFile = this.getFilenameWithNewExt(dep, '.ml');
           deps.dependentsOf[depFile] = deps.dependentsOf[depFile] || {};
@@ -102,6 +104,7 @@ class BucklescriptBrunchPlugin {
   }
 
   getDependsOf(fullInFile, callback) {
+    const verbosity = this.verbosity;
     const inFile = this.getFilepathWithoutBscCwd(fullInFile);
     if(!inFile) {
       callback("Invalid file given to depends of: "+fullInFile, "");
@@ -116,29 +119,30 @@ class BucklescriptBrunchPlugin {
     const command = '"' + ocamldep + '" "-ppx" "' + bsppx + '" "' + inFile + '"';
 
     const info = 'Bucklescript depends check: ' + command;
-    console.log(info);
+    if(verbosity > 1) console.log(info);
 
     try {
       childProcess.exec(command, {cwd: bscCwd}, (error, stdout, stderr) => {
-        if(stderr) console.log(stderr);
+        if(stderr) if(verbosity > 0) console.log(stderr);
         if(error) callback(error, "");
         else {
           if(stderr != "") callback(stderr, "");
           else {
             const deps = self.parseOcamlDepOutput(stdout);
-            // console.log("Possible deps of:", inFile, deps);
+            if(verbosity > 3)  console.log("Possible deps of:", inFile, deps);
             if(deps.dependsOf[inFile]) callback(null, Object.keys(deps.dependsOf[inFile]));
             else callback(null, []);
           }
         }
       })
     } catch (error) {
-      // console.log("DEPS ERRORS", error);
+      if(verbosity > 3) console.log("DEPS ERRORS", error);
       callback(error, "");
     }
   }
 
   getDependentsOf(fullInFile, callback) {
+    const verbosity = this.verbosity;
     const inFile = this.getFilepathWithoutBscCwd(fullInFile);
     if(!inFile) {
       callback("Invalid file given to dependents of: "+fullInFile, "");
@@ -161,33 +165,32 @@ class BucklescriptBrunchPlugin {
       else {
         // ocamldep does the inverse of the dependency check that we want here, rather we want to see what other files
         // need to be compiled once this one is compiled...  So we grab all files then see what depends on 'this'
-        // console.log("Deps files to check:", files);
+        if(verbosity > 4) console.log("Deps files to check:", files);
 
         const ocamldep = binPaths.ocamldep;
         const bsppx = binPaths.bsppx;
         const command = '"' + ocamldep + '" "-ppx" "' + bsppx + '" "' + files.join('" "') + '"';
 
         const info = 'Bucklescript dependents check: ' + command;
-        console.log(info);
+        if(verbosity > 1) console.log(info);
 
         try {
           childProcess.exec(command, {cwd: bscCwd}, (error, stdout, stderr) => {
-            // console.log("DEPS CHECK:", error, stdout, stderr);
-            if(stderr) console.log(stderr);
+            if(verbosity > 4) console.log("DEPS CHECK:", error, stdout, stderr);
+            if(stderr) if(verbosity > 0) console.log(stderr);
             if(error) callback(error, "");
             else {
               if(stderr) callback(stderr, "");
               else {
-                // console.log("TODO:  deps", stdout);
                 const deps = self.parseOcamlDepOutput(stdout);
-                // console.log("Deps of:", inFile, deps);
+                if(verbosity > 3) console.log("Deps of:", inFile, deps);
                 if(deps.dependentsOf[inFile]) callback(null, Object.keys(deps.dependentsOf[inFile]));
                 else callback(null, []);
               }
             }
           })
         } catch (error) {
-          // console.log("DEPS ERRORS", error);
+          if(verbosity > 3) console.log("DEPS ERRORS", error);
           callback(error, "");
         }
       }
@@ -197,6 +200,7 @@ class BucklescriptBrunchPlugin {
   // // Allows Brunch to calculate dependants of the file and re-compile them too.
   // // Examples: SASS '@import's, Jade 'include'-s.
   getDependencies(data, filepath, callback) {
+    const verbosity = this.verbosity;
     if(this.disableDepCheck || this.compileAllAtOnce) {
       callback(null, []);
     }
@@ -210,15 +214,16 @@ class BucklescriptBrunchPlugin {
   }
 
   doCompile(inFile, binPaths, params, bscCwd, tempOutputFolder, callback) {
+    const verbosity = this.verbosity;
     var executable = binPaths.bsc;
     var command = '"' + executable + '" "' + params.join('" "') + '"';
 
     var info = 'Bucklescript compile: ' + command;
-    console.log(info);
+    if(verbosity > 1) console.log(info);
 
     try {
       childProcess.exec(command, {cwd: bscCwd}, (error, stdout, stderr) => {
-        if(stderr) console.log(stderr);
+        if(stderr) if(verbosity > 0) console.log(stderr);
         if(error) callback(error, "");
         else {
           var js_filename = inFile.substr(0, inFile.lastIndexOf(".")) + ".js"
@@ -234,14 +239,13 @@ class BucklescriptBrunchPlugin {
   }
 
   compile(filedata, callback) {
+    const verbosity = this.verbosity;
     var inFile = filedata.path;
 
     if(this.bscCwd !== null) {
       var cwdTerm = path.posix.join(this.bscCwd, "i").slice(0, -1);
       if(!inFile.startsWith(cwdTerm)) {
-        // console.log("External ml file ignored due to not being on the working path", inFile);
-        // return callback(null, "");
-        // console.log("Blah", filedata.path, inFile, cwdTerm, this.bscCwd);
+        if(verbosity > 1)  console.log("External ml file ignored due to not being on the working path", inFile);
         return callback(filedata.path + " is not in the supported cwd path", "");
       }
       inFile = inFile.substring(cwdTerm.length);
@@ -262,7 +266,6 @@ class BucklescriptBrunchPlugin {
     const binPaths = this.binPaths;
     const bscCwd = this.bscCwd;
     const tempOutputFolder = this.tempOutputFolder;
-    const doCompile = this.doCompile;
     const globIgnore = this.globIgnore;
 
     if(this.compileAllAtOnce) {
@@ -276,7 +279,7 @@ class BucklescriptBrunchPlugin {
         else {
           params = params.concat(files);
 
-          doCompile(inFile, binPaths, params, bscCwd, tempOutputFolder, callback);
+          self.doCompile(inFile, binPaths, params, bscCwd, tempOutputFolder, callback);
         }
       });
     }
@@ -289,13 +292,14 @@ class BucklescriptBrunchPlugin {
           params = params.concat([inFileI]);
         }
       }
-      doCompile(inFile, binPaths, params, bscCwd, tempOutputFolder, function(error, output) {
+      self.doCompile(inFile, binPaths, params, bscCwd, tempOutputFolder, function(error, output) {
         if(error) {
+          if(verbosity > 2) console.log("Compilation of", inFile, "failed, retrying with dependencies.");
           self.getDependsOf(filedata.path, function (err, files) {
             if(err) callback(err, "");
             else if(files == []) callback(error, "");
             else {
-              doCompile(inFile, binPaths, params.concat(files), bscCwd, tempOutputFolder, callback);
+              self.doCompile(inFile, binPaths, params.concat(files), bscCwd, tempOutputFolder, callback);
             }
           });
         }

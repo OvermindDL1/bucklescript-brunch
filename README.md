@@ -92,6 +92,22 @@ Inside your brunch-config.js (or equivalent) file:
       // (optional)
       bscParameters: [
       ], // example:  [ "-bs-cross-module-opt" ]
+
+      // Verbosity of output, all higher verbosity
+      //   inclused the reporting of the earlier.
+      // 0 turns off all output, even file errors.
+      // 1 shows file errors, this is the default.
+      // 2 shows commands used to compile and files
+      //   that are out of the path.
+      // 3 shows when a file fails compilation
+      //   because its dependencies need to be
+      //   recompiled, which then happens.
+      // 4 includes dependency information output
+      //   of source files to see what depends on
+      //   what.
+      // 5 Full debug output, this shows the state
+      //   of various calls, commands, everything.
+      verbosity: 1
     }
   }
 ```
