@@ -98,7 +98,7 @@ describe('BucklescriptCompiler', function (){
         var data = '';
         bucklescriptCompiler.getDependencies(data, "test/test_dep.ml", function(error, result) {
           expect(error).to.not.be.ok;
-          expect(result).to.deep.equal([]);
+          expect(result).to.deep.equal(["test/test.ml"]);
           done();
         });
       });
@@ -115,7 +115,7 @@ describe('BucklescriptCompiler', function (){
         // test_dep.ml depends on test.ml
         bucklescriptCompiler.getDependencies(data, "test/test.ml", function(error, result) {
           expect(error).to.not.be.ok;
-          expect(result).to.deep.equal(["test/test_dep.ml"]);
+          expect(result).to.deep.equal([]);
           done();
         });
       });
@@ -171,6 +171,7 @@ describe('BucklescriptCompiler', function (){
         beforeEach(function () {
           var config = JSON.parse(JSON.stringify(fileByFileConfig));
           config.plugins.bucklescriptBrunch.bscParameters = ["-blah"];
+          config.plugins.bucklescriptBrunch.verbosity = 2;
           bucklescriptCompiler = new BucklescriptCompiler(config);
         });
 

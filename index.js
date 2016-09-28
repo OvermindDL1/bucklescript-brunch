@@ -42,6 +42,10 @@ class BucklescriptBrunchPlugin {
     this.binPaths.bsc = (this.binPaths.bsc=="bsc.exe") ? this.binPaths.bsc : path.resolve(this.binPaths.bsc);
     this.binPaths.bsppx = (this.binPaths.bsppx=="bsppx.exe") ? this.binPaths.bsppx : path.resolve(this.binPaths.bsppx);
     this.binPaths.ocamldep = (this.binPaths.ocamldep=="ocamldep") ? this.binPaths.ocamldep : path.resolve(this.binPaths.ocamldep);
+
+    // Internal caches
+    this.pendingCompiles = [];
+    this.compileds = {};
   }
 
   retIfFileIsExecutable(path, ret) {
@@ -119,7 +123,7 @@ class BucklescriptBrunchPlugin {
     const command = '"' + ocamldep + '" "-one-line" "-ppx" "' + bsppx + '" "' + inFile + '"';
 
     const info = 'Bucklescript depends check: ' + command;
-    if(verbosity > 1) console.log(info);
+    if(verbosity > 2) console.log(info);
 
     try {
       childProcess.exec(command, {cwd: bscCwd}, (error, stdout, stderr) => {
@@ -177,7 +181,7 @@ class BucklescriptBrunchPlugin {
         try {
           childProcess.exec(command, {cwd: bscCwd}, (error, stdout, stderr) => {
             if(verbosity > 4) console.log("DEPS CHECK:", error, stdout, stderr);
-            if(stderr) if(verbosity > 0) console.log(stderr);
+            if(stderr) if(verbosity > 0) console.log("DepCheck Error of", inFile, ":", stderr);
             if(error) callback(error, "");
             else {
               if(stderr) callback(stderr, "");
@@ -206,15 +210,19 @@ class BucklescriptBrunchPlugin {
     }
     else {
       const bscCwd = this.bscCwd;
-      this.getDependentsOf(filepath, function (err, files) {
+      //this.getDependentsOf(filepath, function (err, files) {
+      this.getDependsOf(filepath, function (err, files) {
         if(err) callback(err, []);
-        else callback(null, files.map(p => path.posix.join(bscCwd, p)));
+        else {
+          callback(null, files.map(p => path.posix.join(bscCwd, p)));
+        }
       });
     }
   }
 
   doCompile(inFile, binPaths, params, bscCwd, tempOutputFolder, callback) {
     const verbosity = this.verbosity;
+    var compileds = this.compileds;
     var executable = binPaths.bsc;
     var command = '"' + executable + '" "' + params.join('" "') + '"';
 
@@ -223,13 +231,22 @@ class BucklescriptBrunchPlugin {
 
     try {
       childProcess.exec(command, {cwd: bscCwd}, (error, stdout, stderr) => {
-        if(stderr) if(verbosity > 0) console.log(stderr);
-        if(error) callback(error, "");
+        // if(stderr) if(verbosity > 0) console.log("Compile Error of", inFile, ":", stderr);
+        if(error) {
+          compileds[inFile] = false;
+          callback(error, "");
+        }
         else {
           var js_filename = inFile.substr(0, inFile.lastIndexOf(".")) + ".js"
           fs.readFile(path.posix.join(tempOutputFolder, js_filename), "utf-8", (err, data) => {
-            if(err) callback(err, "");
-            else callback(null, data);
+            if(err) {
+              compileds[inFile] = false;
+              callback(err, "");
+            }
+            else {
+              compileds[inFile] = true;
+              callback(null, data);
+            }
           });
         }
       })
@@ -238,9 +255,65 @@ class BucklescriptBrunchPlugin {
     }
   }
 
+  getMissingDeps(deps) {
+    var compileds = this.compileds;
+    // console.log("getMissingDeps", deps, compileds);
+    var ret = [];
+    for (var dep of deps) {
+      if(compileds[dep] === undefined) ret.push(dep);
+    }
+    return ret;
+  }
+
+  doDepCompile(fullInFile, inFile, params, binPaths, callback) {
+    const tempOutputFolder = this.tempOutputFolder;
+    var self = this;
+    var bscCwd = this.bscCwd;
+    var compileds = this.compileds;
+    var pendingCompiles = this.pendingCompiles;
+    var verbosity = this.verbosity;
+
+    if(verbosity > 2) console.log("doDepCompile", fullInFile, inFile);
+    self.getDependsOf(fullInFile, function (err, files) { // Always re-run this so it is up-to-date
+      console.log("Dependency Check During compile:", inFile, compileds, pendingCompiles, err, files);
+      if(err) callback(err, "");
+      else {
+        var missingDeps = self.getMissingDeps(files);
+        if(missingDeps.length>0) {
+          if(verbosity > 1) console.log("Dependencies of", fullInFile, "have not been compiled in this session, waiting for", missingDeps, "before trying again.");
+          pendingCompiles.push(function() {
+            self.doDepCompile(fullInFile, inFile, params, binPaths, callback);
+          })
+        }
+        else {
+          params = params.concat([inFile]);
+          if(inFile.endsWith(".ml")) {
+            const inFileI = inFile + "i";
+            const base = bscCwd || "";
+            if(fsExistsSync(path.posix.join(base, inFileI))) {
+              params = params.concat([inFileI]);
+            }
+          }
+          self.doCompile(inFile, binPaths, params, bscCwd, tempOutputFolder, function(error, output) {
+            // compileds[inFile] = (error === undefined);
+            // console.log("=========== Compiled Output", inFile, error);
+            if(error) callback(error, "")
+            else callback(null, output);
+            const len = pendingCompiles.length;
+            for (var i = 0; i < len; i++) {
+              var cb = pendingCompiles.shift();
+              if(cb) cb();
+            }
+          });
+        }
+      }
+    });
+  }
+
   compile(filedata, callback) {
     const verbosity = this.verbosity;
-    var inFile = filedata.path;
+    const fullInFile = filedata.path;
+    var inFile = fullInFile;
 
     if(this.bscCwd !== null) {
       var cwdTerm = path.posix.join(this.bscCwd, "i").slice(0, -1);
@@ -284,27 +357,7 @@ class BucklescriptBrunchPlugin {
       });
     }
     else {
-      params = params.concat([inFile]);
-      if(inFile.endsWith(".ml")) {
-        const inFileI = inFile + "i";
-        const base = this.bscCwd || "";
-        if(fsExistsSync(path.posix.join(base, inFileI))) {
-          params = params.concat([inFileI]);
-        }
-      }
-      self.doCompile(inFile, binPaths, params, bscCwd, tempOutputFolder, function(error, output) {
-        if(error) {
-          if(verbosity > 2) console.log("Compilation of", inFile, "failed, retrying with dependencies.");
-          self.getDependsOf(filedata.path, function (err, files) {
-            if(err) callback(err, "");
-            else if(files == []) callback(error, "");
-            else {
-              self.doCompile(inFile, binPaths, params.concat(files), bscCwd, tempOutputFolder, callback);
-            }
-          });
-        }
-        else callback(null, output);
-      });
+      this.doDepCompile(fullInFile, inFile, params, binPaths, callback)
     }
   }
 }
