@@ -231,7 +231,7 @@ class BucklescriptBrunchPlugin {
 
     try {
       childProcess.exec(command, {cwd: bscCwd}, (error, stdout, stderr) => {
-        // if(stderr) if(verbosity > 0) console.log("Compile Error of", inFile, ":", stderr);
+        if(stderr) if(verbosity > 0) console.log("Compile Error of", inFile, ":", stderr);
         if(error) {
           compileds[inFile] = false;
           callback(error, "");
@@ -275,7 +275,7 @@ class BucklescriptBrunchPlugin {
 
     if(verbosity > 2) console.log("doDepCompile", fullInFile, inFile);
     self.getDependsOf(fullInFile, function (err, files) { // Always re-run this so it is up-to-date
-      console.log("Dependency Check During compile:", inFile, compileds, pendingCompiles, err, files);
+      if(verbosity > 2) console.log("Dependency Check During compile:", inFile, compileds, pendingCompiles, err, files);
       if(err) callback(err, "");
       else {
         var missingDeps = self.getMissingDeps(files);
