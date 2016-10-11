@@ -30,7 +30,10 @@ class BucklescriptBrunchPlugin {
     this.binPaths.bsppx = this.binPaths.bsppx ||
       this.retIfFileIsExecutable(path.posix.join("node_modules", "bs-platform", "bin", "bsppx.exe")) ||
       "bsppx.exe";
-    this.binPaths.ocamldep = this.binPaths.ocamldep || "ocamldep";
+    // this.binPaths.ocamldep = this.binPaths.ocamldep || "ocamldep";
+    this.binPaths.ocamldep = this.binPaths.ocamldep ||
+      this.retIfFileIsExecutable(path.posix.join("node_modules", "bs-platform", "bin", "bsdep.exe")) ||
+      "bsdep.exe";
     this.bscCwd = this.config.bscCwd || null; // null is the project root directory
     this.tempOutputFolder = this.config.tempOutputFolder || "tmp"
     this.compileAllAtOnce = this.config.compileAllAtOnce || false;
@@ -41,11 +44,13 @@ class BucklescriptBrunchPlugin {
     // Resolve paths:
     this.binPaths.bsc = (this.binPaths.bsc=="bsc.exe") ? this.binPaths.bsc : path.resolve(this.binPaths.bsc);
     this.binPaths.bsppx = (this.binPaths.bsppx=="bsppx.exe") ? this.binPaths.bsppx : path.resolve(this.binPaths.bsppx);
-    this.binPaths.ocamldep = (this.binPaths.ocamldep=="ocamldep") ? this.binPaths.ocamldep : path.resolve(this.binPaths.ocamldep);
+    // this.binPaths.ocamldep = (this.binPaths.ocamldep=="ocamldep") ? this.binPaths.ocamldep : path.resolve(this.binPaths.ocamldep);
+    this.binPaths.ocamldep = (this.binPaths.ocamldep=="bsdep.exe") ? this.binPaths.ocamldep : path.resolve(this.binPaths.ocamldep);
 
     // Internal caches
     this.pendingCompiles = [];
     this.compileds = {};
+    this.isCompiling = 0;
   }
 
   retIfFileIsExecutable(path, ret) {
@@ -205,8 +210,25 @@ class BucklescriptBrunchPlugin {
   // // Examples: SASS '@import's, Jade 'include'-s.
   getDependencies(data, filepath, callback) {
     const verbosity = this.verbosity;
-    if(this.disableDepCheck || this.compileAllAtOnce) {
+    if(this.disableDepCheck) {
       callback(null, []);
+    }
+    else if(this.compileAllAtOnce) {
+      const inFile = this.getFilepathWithoutBscCwd(fullInFile);
+      const bscCwd = this.bscCwd;
+      const globIgnore = this.globIgnore;
+      var glob_opts = {};
+      glob_opts.nosort = true;
+      glob_opts.ignore = globIgnore;
+      if(bscCwd) glob_opts.cwd = bscCwd;
+      glob("**/*.{ml,mli}", glob_opts, function (err, files) {
+        if(err) callback(err, []);
+        else {
+          var idx = files.indexOf(inFile);
+          if(idx >= 0) files = files.splice(idx, 1);
+          callback(null, files.map(p => path.posix.join(bscCwd, p)));
+        }
+      });
     }
     else {
       const bscCwd = this.bscCwd;
@@ -220,7 +242,13 @@ class BucklescriptBrunchPlugin {
     }
   }
 
+  doGetJavascript(inFile, folder, callback) {
+    var js_filename = inFile.substr(0, inFile.lastIndexOf(".")) + ".js"
+    fs.readFile(path.posix.join(folder, js_filename), "utf-8", callback);
+  }
+
   doCompile(inFile, binPaths, params, bscCwd, tempOutputFolder, callback) {
+    var self = this;
     const verbosity = this.verbosity;
     var compileds = this.compileds;
     var executable = binPaths.bsc;
@@ -237,8 +265,7 @@ class BucklescriptBrunchPlugin {
           callback(error, "");
         }
         else {
-          var js_filename = inFile.substr(0, inFile.lastIndexOf(".")) + ".js"
-          fs.readFile(path.posix.join(tempOutputFolder, js_filename), "utf-8", (err, data) => {
+          self.doGetJavascript(inFile, tempOutputFolder, (err, data) => {
             if(err) {
               compileds[inFile] = false;
               callback(err, "");
@@ -256,7 +283,7 @@ class BucklescriptBrunchPlugin {
     }
   }
 
-  getMissingDeps(deps) {
+  getMissingDeps(deps) { // TODO:  Need to check for recursive dependencies
     var compileds = this.compileds;
     // console.log("getMissingDeps", deps, compileds);
     var ret = [];
@@ -285,8 +312,10 @@ class BucklescriptBrunchPlugin {
         var missingDeps = self.getMissingDeps(files);
         if(missingDeps.length>0) {
           if(verbosity > 1) console.log("Dependencies of", fullInFile, "have not been compiled in this session, waiting for", missingDeps, "before trying again.");
-          pendingCompiles.push(function() {
-            self.doDepCompile(fullInFile, inFile, params, binPaths, callback);
+          pendingCompiles.push(function depCheckFunc() {
+            var missingDeps = self.getMissingDeps(files);
+            if(missingDeps.length>0) pendingCompiles.push(depCheckFunc);
+            else self.doDepCompile(fullInFile, inFile, params, binPaths, callback);
           })
         }
         else {
@@ -351,14 +380,44 @@ class BucklescriptBrunchPlugin {
       // glob_opts.nonull = true;
       glob_opts.ignore = globIgnore;
       if(bscCwd) glob_opts.cwd = bscCwd;
-      glob("**/*.{ml,mli}", glob_opts, function (er, files) {
-        if(er) callback(er, "");
-        else {
-          params = params.concat(files);
+      if(self.isCompiling > 0) {
+        self.pendingCompiles.push((error) => {
+          if(error) callback(error, "");
+          else self.doGetJavascript(inFile, tempOutputFolder, (err, data) => {
+            if(err) callback(err, "");
+            else callback(null, data);
+          });
+        });
+        self.isCompiling += 1;
+      }
+      else {
+        self.isCompiling += 1; // Thankfully javascript has a global lock as far as I've seen...  I hope...
+        glob("**/*.{ml,mli}", glob_opts, function (er, files) {
+          if(er) callback(er, "");
+          else {
+            params = params.concat(files);
 
-          self.doCompile(inFile, binPaths, params, bscCwd, tempOutputFolder, callback);
-        }
-      });
+            self.doCompile(inFile, binPaths, params, bscCwd, tempOutputFolder, function compileCB(error, js) {
+              if(self.isCompiling > 1) {
+                self.isCompiling = 1;
+                self.doCompile(inFile, binPaths, params, bscCwd, tempOutputFolder, compileCB);
+              }
+              else {
+                self.isCompiling = 0;
+                while(self.pendingCompiles.length > 0) {
+                  var cb = self.pendingCompiles.shift();
+                  // console.log("Pending compile:", cb);
+                  if(cb) cb(error);
+                }
+                if(error) callback(error, "");
+                else {
+                  callback(null, js);
+                }
+              }
+            });
+          }
+        });
+      }
     }
     else {
       this.doDepCompile(fullInFile, inFile, params, binPaths, callback)
