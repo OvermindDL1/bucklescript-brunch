@@ -1,9 +1,10 @@
+// -*- js-indent-level: 2 -*-
 'use strict';
 
 var childProcess = require('child_process');
 var fs = require('fs');
 var path = require('path');
-var glob = require( 'glob' );
+var glob = require('glob');
 
 function fsExistsSync(path) {
   try {
@@ -34,18 +35,40 @@ class BucklescriptBrunchPlugin {
     this.binPaths.ocamldep = this.binPaths.ocamldep ||
       this.retIfFileIsExecutable(path.posix.join("node_modules", "bs-platform", "bin", "bsdep.exe")) ||
       "bsdep.exe";
+    this.binPaths.ocamlfind = this.binPaths.ocamlfind || "ocamlfind";
     this.bscCwd = this.config.bscCwd || null; // null is the project root directory
     this.tempOutputFolder = this.config.tempOutputFolder || "tmp"
     this.compileAllAtOnce = this.config.compileAllAtOnce || false;
     this.disableDepCheck = this.config.compileAllAtOnce || false;
     this.bscParameters = this.config.bscParameters || [];
     this.globIgnore = this.config.globIgnore || "node_modules/**/*";
+    this.ppxs = this.config.ppxs || [];
 
     // Resolve paths:
     this.binPaths.bsc = (this.binPaths.bsc=="bsc.exe") ? this.binPaths.bsc : path.resolve(this.binPaths.bsc);
     this.binPaths.bsppx = (this.binPaths.bsppx=="bsppx.exe") ? this.binPaths.bsppx : path.resolve(this.binPaths.bsppx);
     // this.binPaths.ocamldep = (this.binPaths.ocamldep=="ocamldep") ? this.binPaths.ocamldep : path.resolve(this.binPaths.ocamldep);
     this.binPaths.ocamldep = (this.binPaths.ocamldep=="bsdep.exe") ? this.binPaths.ocamldep : path.resolve(this.binPaths.ocamldep);
+    this.binPaths.ocamlfind = (this.binPaths.ocamlfind=="ocamlfind") ? this.binPaths.ocamlfind : path.resolve(this.binPaths.ocamlfind);
+
+    // Resolve PPXs:
+    this.ppxsResolve = [];
+    this.ppxsCommand = "";
+    if(this.ppxs.length > 0) {
+      try {
+        const command = '"' + this.binPaths.ocamlfind + '" query "' + this.ppxs.join('" "') + '"';
+        const stdout = childProcess.execSync(command, {cwd: this.bscCwd});
+        let ppxs = stdout.toString('utf8').trim().split(/\r?\n/);
+        if(this.verbosity > 1) console.log("PPX", "Directories", ppxs);
+        ppxs = ppxs.map((ppx, index) => {
+          return ppx + "/*.exe";
+        }, this);
+        this.ppxsResolve = ppxs;
+        this.ppxsCommand = this.getPPXsCommand(ppxs);
+      } catch (error) {
+        if(this.verbosity > 0) console.log("ERROR", "PPX", error);
+      }
+    }
 
     // Internal caches
     this.pendingCompiles = [];
@@ -81,6 +104,14 @@ class BucklescriptBrunchPlugin {
   getFilenameWithNewExt(filename, newExt) {
     const ext = path.extname(filename);
     return filename.slice(0,-ext.length) + newExt;
+  }
+
+  getPPXsCommand(ppxs) {
+    let ret = "";
+    for(const ppx of ppxs) {
+      ret += ' -ppx "' + ppx + '"';
+    }
+    return ret;
   }
 
   parseOcamlDepOutput(output) {
@@ -252,7 +283,7 @@ class BucklescriptBrunchPlugin {
     const verbosity = this.verbosity;
     var compileds = this.compileds;
     var executable = binPaths.bsc;
-    var command = '"' + executable + '" "' + params.join('" "') + '"';
+    var command = '"' + executable + '"' + this.ppxsCommand + ' "' + params.join('" "') + '"';
 
     var info = 'Bucklescript compile: ' + command;
     if(verbosity > 1) console.log(info);

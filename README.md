@@ -51,9 +51,14 @@ Inside your brunch-config.js (or equivalent) file:
         // (optional)
         bsppx: "<path-to-bsppx>",
 
-        // This defaults to a global ocamldep on the $PATH, please make sure that OCaml is on the path
+        // This defaults to a global ocamldep on the $PATH unless bsdep exists in bs-platform,
+        // please make sure that OCaml is on the path otherwise.
         // (optional)
-        ocamldep: "<path-to-ocamldep>"
+        ocamldep: "<path-to-ocamldep>",
+        
+        // This defaults to a global ocamlfind on the $PATH, please make sure that OCaml is on the path.
+        // (optional)
+        ocamlfind: "<path-to-ocamlfind>"
       },
 
       // The base working directory for the bsc source
@@ -92,6 +97,12 @@ Inside your brunch-config.js (or equivalent) file:
       // (optional)
       bscParameters: [
       ], // example:  [ "-bs-cross-module-opt" ]
+      
+      // A list of PPX's that will be found and included via
+      // ocamlfind.
+      // (optional)
+      ppxs: [
+      ], // example:  [ "ppx-deriving" ]
 
       // Verbosity of output, all higher verbosity
       //   inclused the reporting of the earlier.
